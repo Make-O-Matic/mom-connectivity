@@ -20,6 +20,7 @@ void Glove::connect()
     }
     for (auto it = m_sockets.begin(); it != m_sockets.end(); it++) {
         it.value()->connectToService(it.key().address(), QBluetoothUuid(QBluetoothUuid::SerialPort));
+        //connect(it.value(), &QBluetoothSocket::connected, this, ());
     }
 }
 
