@@ -5,6 +5,12 @@
 #include <QBluetoothSocket>
 #include <QBluetoothUuid>
 //#include "extern-plugininfo.h"
+extern "C" {
+    #define restrict
+    #include "cobs/cobs.h"
+    #undef restrict
+}
+#include "packet.h"
 #include "glove.h"
 //#include <iostream>
 Glove::Glove(const QString &name, const QString &leftMAC, const QString &rightMAC,
@@ -31,7 +37,7 @@ void Glove::connectDevice()
     }
 
     for (auto device = m_connections.begin(); device != m_connections.end(); device++) {
-        device.value()->connectToService(device.key().address(), QBluetoothUuid(QBluetoothUuid::SerialPort));
+        device.value()->connectToService(device.key().address(), 0);
     }
 }
 
@@ -56,10 +62,15 @@ void Glove::read(const QBluetoothDeviceInfo deviceInfo)
     //std::cerr << "a" << std::endl;
     char c;
     auto &packet = m_packets[deviceInfo];
+    auto &packedData = m_data[deviceInfo];
     while (m_connections[deviceInfo]->getChar(&c)) {
         if (c == '\0') {
-            //cobs_decode(packet.data(), packet.size(), &dataPoint);
+            packedData.reserve(packet.size());
+            cobs_decode(reinterpret_cast<uint8_t*>(packet.data()), packet.size(), packedData.data());
+            //auto data = reinterpret_cast<Packet*>(packedData.data());
             //db
+            //qCDebug(dcMakeOMatic) << data->ax;
+            //std::cerr << data->ax;
             packet.clear();
         } else {
             packet += c;

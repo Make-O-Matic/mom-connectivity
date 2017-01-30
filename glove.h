@@ -29,7 +29,8 @@ private:
     std::function<bool()> m_isRecording;
 
     QHash<QBluetoothDeviceInfo, QSharedPointer<QBluetoothSocket>> m_connections;
-    QHash<QBluetoothDeviceInfo, QString> m_packets;
+    QHash<QBluetoothDeviceInfo, QByteArray> m_packets;
+    QHash<QBluetoothDeviceInfo, QVector<uint8_t>> m_data;
 
 private slots:
     void emitConnectionChanged();
