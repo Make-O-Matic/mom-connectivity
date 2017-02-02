@@ -7,6 +7,8 @@
 #include <QVariant>
 #include <QBluetoothDeviceInfo>
 #include <QBluetoothSocket>
+#include <mongocxx/client.hpp>
+#include <mongocxx/uri.hpp>
 //#include "extern-plugininfo.h"
 
 class Glove : public QObject
@@ -25,6 +27,10 @@ signals:
 
 private:
     void read(const QBluetoothDeviceInfo deviceInfo);
+
+    mongocxx::client m_dbConnection{mongocxx::uri{}};
+    mongocxx::database m_db{m_dbConnection["makeomatic"]};
+    mongocxx::collection  m_trainsets{m_db["trainsets"]};
 
     std::function<bool()> m_isRecording;
 
