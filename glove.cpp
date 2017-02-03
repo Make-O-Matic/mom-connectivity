@@ -12,7 +12,7 @@ extern "C" {
 #include "extern-plugininfo.h"
 #include "packet.h"
 #include "glove.h"
-
+#include <iostream>
 Glove::Glove(const QString &name, const QString &leftMAC, const QString &rightMAC,
              const std::function<bool()> &isRecording, QObject *parent) :
     QObject(parent), m_isRecording(isRecording)
@@ -69,9 +69,9 @@ void Glove::read(const QBluetoothDeviceInfo deviceInfo)
         if (c == '\0') {
             packedData.reserve(packet.size());
             cobs_decode(reinterpret_cast<uint8_t*>(packet.data()), packet.size(), packedData.data());
-            //auto data =
-                    reinterpret_cast<Packet*>(packedData.data());
-
+            auto data = reinterpret_cast<Packet*>(packedData.data());
+            std::cerr << data->ex << " ";
+//mutation
             packet.clear();
         } else {
             packet += c;

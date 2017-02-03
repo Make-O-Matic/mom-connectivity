@@ -9,6 +9,8 @@
 #include <QBluetoothSocket>
 #include <mongocxx/client.hpp>
 #include <mongocxx/uri.hpp>
+#include <mongocxx/stdx.hpp>
+
 //#include "extern-plugininfo.h"
 
 class Glove : public QObject
