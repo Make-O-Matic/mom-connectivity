@@ -6,11 +6,13 @@
 #include <unordered_map>
 #include <string>
 #include <thread>
+#include <chrono>
 #include <boost/asio.hpp>
 #include <glibmm.h>
 #include <giomm.h>
-#include <mongocxx/client.hpp>
+#include <mongocxx/instance.hpp>
 #include <mongocxx/uri.hpp>
+#include <mongocxx/client.hpp>
 #include <mongocxx/stdx.hpp>
 
 class Glove
@@ -18,28 +20,32 @@ class Glove
 public:
     explicit Glove(const std::string &leftMAC, const std::string &rightMAC,
                    const std::function<bool()> &isRecording);
-    void connectDevice();
+    void connect();
 
     enum Connected { none, left, right, both };
 
 private:
     void read(const std::string &device, const boost::system::error_code&, std::size_t length);
 
-    mongocxx::client m_dbConnection{mongocxx::uri{}};
-    mongocxx::database m_db{m_dbConnection["makeomatic"]};
-    mongocxx::collection  m_trainsets{m_db["trainsets"]};
+    std::chrono::time_point<std::chrono::high_resolution_clock> m_connectionTime;
+
+    const mongocxx::instance &m_dbDriver{mongocxx::instance::current()};
+    //const mongocxx::client m_dbConnection{mongocxx::uri{}};
+    //const mongocxx::database m_db{m_dbConnection["makeomatic"]};
+    //mongocxx::collection  m_trainsets{m_db["trainsets"]};
 
     std::function<bool()> m_isRecording;
 
     boost::asio::io_service m_ioService;
-    struct DataConnection {
+    struct Connections {
         std::string MAC;
         std::unique_ptr<boost::asio::posix::stream_descriptor> stream;//{m_ioService};
         boost::asio::streambuf buffer;
         std::vector<uint8_t> unpackedBuffer;
+        mongocxx::client db;//{mongocxx::uri{}};
         std::unique_ptr<std::thread> thread;
     };
-    std::unordered_map<std::string, DataConnection> m_dataConnections;
+    std::unordered_map<std::string, Connections> m_dataConnections;
 
     std::unique_ptr<std::thread> m_dbus;
     std::unique_ptr<std::thread> m_bt;
