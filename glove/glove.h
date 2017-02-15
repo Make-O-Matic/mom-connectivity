@@ -1,6 +1,6 @@
 #ifndef GLOVE_H
 #define GLOVE_H
-
+#include <limits.h>
 #include <functional>
 #include <vector>
 #include <unordered_map>
@@ -19,7 +19,9 @@ class Glove
 {
 public:
     explicit Glove(const std::string &leftMAC, const std::string &rightMAC,
-                   const std::function<bool()> &isRecording);
+                   const std::function<bool()> &isRecording,
+                   const std::string &leftUUID, const std::string &rightUUID);
+    ~Glove();
     void connect();
 
     enum Connected { none, left, right, both };
@@ -36,17 +38,21 @@ private:
 
     std::function<bool()> m_isRecording;
 
-    boost::asio::io_service m_ioService;
     struct Connections {
         std::string MAC;
-        std::unique_ptr<boost::asio::posix::stream_descriptor> stream;//{m_ioService};
+        std::string uuid;
+        boost::asio::io_service ioService;
+        std::unique_ptr<boost::asio::generic::stream_protocol::socket> socket;
         boost::asio::streambuf buffer;
         std::vector<uint8_t> unpackedBuffer;
-        mongocxx::client db;//{mongocxx::uri{}};
+        mongocxx::client db;
+        mongocxx::collection collection;
         std::unique_ptr<std::thread> thread;
     };
     std::unordered_map<std::string, Connections> m_dataConnections;
 
+	Glib::RefPtr<Glib::MainLoop> m_glib;
+	Glib::RefPtr<Gio::DBus::Connection> m_dbusConn;
     std::unique_ptr<std::thread> m_dbus;
     std::unique_ptr<std::thread> m_bt;
 
