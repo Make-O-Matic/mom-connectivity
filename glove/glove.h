@@ -19,12 +19,16 @@ class Glove
 {
 public:
     explicit Glove(const std::string &leftMAC, const std::string &rightMAC,
+                   const std::function<void(int)> &setConnected,
                    const std::function<bool()> &isRecording,
                    const std::string &leftUUID, const std::string &rightUUID);
     ~Glove();
     void connect();
+    void disconnect();
 
     enum Connected { none, left, right, both };
+    void setTrainset(const std::string &trainset);
+    std::string m_trainsetId;
 
 private:
     void read(const std::string &device, const boost::system::error_code&, std::size_t length);
@@ -32,10 +36,8 @@ private:
     std::chrono::time_point<std::chrono::high_resolution_clock> m_connectionTime;
 
     const mongocxx::instance &m_dbDriver{mongocxx::instance::current()};
-    //const mongocxx::client m_dbConnection{mongocxx::uri{}};
-    //const mongocxx::database m_db{m_dbConnection["makeomatic"]};
-    //mongocxx::collection  m_trainsets{m_db["trainsets"]};
 
+    std::function<void(Connected)> m_setConnected;
     std::function<bool()> m_isRecording;
 
     struct Connections {
@@ -51,10 +53,11 @@ private:
     };
     std::unordered_map<std::string, Connections> m_dataConnections;
 
-	Glib::RefPtr<Glib::MainLoop> m_glib;
-	Glib::RefPtr<Gio::DBus::Connection> m_dbusConn;
-    std::unique_ptr<std::thread> m_dbus;
+	Glib::RefPtr<Glib::MainLoop> m_gLoop;
+	Glib::RefPtr<Gio::DBus::Connection> m_dbus;
+    std::unique_ptr<std::thread> m_gThread;
     std::unique_ptr<std::thread> m_bt;
+    int m_profileId;
 
     void on_method_call(const Glib::RefPtr<Gio::DBus::Connection>& /* connection */,
                                const Glib::ustring& /* sender */,
@@ -64,8 +67,7 @@ private:
                                const Glib::VariantContainerBase& parameters,
                                const Glib::RefPtr<Gio::DBus::MethodInvocation>& invocation);
     const Gio::DBus::InterfaceVTable m_interfaceVtable{sigc::mem_fun(*this, &Glove::on_method_call)};
-    void on_bus_acquired(const Glib::RefPtr<Gio::DBus::Connection>& connection, const Glib::ustring&);
-    void onConnectionChanged();
+    void updateConnected();
 };
 
 #endif // GLOVE_H
