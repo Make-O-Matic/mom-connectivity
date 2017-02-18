@@ -4,6 +4,7 @@
 #include <functional>
 #include <unordered_map>
 #include <thread>
+#include <future>
 #include <boost/asio.hpp>
 #include <glibmm.h>
 #include <giomm.h>
@@ -137,6 +138,7 @@ void Glove::connect()
                                                 std::cerr << "Got an error: '" << error.what() << "'." << std::endl;
                                             }
                                         }});
+        
         try {
         auto dbus = Gio::DBus::Connection::get_sync(Gio::DBus::BUS_TYPE_SYSTEM);
             for (auto &connections : m_dataConnections) {
@@ -158,10 +160,29 @@ void Glove::connect()
     }
 }
 
-void Glove::setTrainset(const std::string &trainset) {
+void Glove::setTrainsetExercise(const std::string &trainset,
+    const int step, const std::string &mutation, const std::string &mutationIndex) {
+    std::promise<void> donePromise;
+    std::shared_future<void> done{donePromise.get_future()};
     for (auto &connections : m_dataConnections) {
-        connections.second.collection = connections.second.db["makeomatic"][trainset];
+        std::promise<void> ready;
+		auto setTrainsetAndWait = std::make_shared<std::packaged_task<void()>>([&connections, &trainset, &ready, done](){ 
+            if (!trainset.empty())
+                connections.second.collection = connections.second.db["makeomatic"][trainset];
+            ready.set_value();
+            done.wait();
+		});
+		connections.second.ioService.dispatch([setTrainsetAndWait](){ setTrainsetAndWait->operator()(); });
+        ready.get_future().wait();
     }
+
+    if (trainset.empty()) {
+        m_step = step;
+        m_mutation = mutation;
+        m_mutationIndex = mutationIndex;
+    }
+        
+    donePromise.set_value();
     /*
                      connections.db["makeomatic"].run_command( document{} <<
                                                       "collMod" << connections.second.db["makeomatic"][trainset] <<

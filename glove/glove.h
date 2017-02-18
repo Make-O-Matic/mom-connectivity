@@ -32,8 +32,8 @@ public:
     std::string now() const;
 
     enum Connected { none, left, right, both };
-    void setTrainset(const std::string &trainset);
-    std::string m_trainsetId;
+    void setTrainsetExercise(const std::string &trainset,
+        const int step, const std::string &mutation, const std::string &mutationIndex);
 
 private:
     void read(const std::string &device, const boost::system::error_code&, std::size_t length);
@@ -44,6 +44,10 @@ private:
 
     std::function<void(Connected)> m_setConnected;
     std::function<bool()> m_isRecording;
+    
+    int m_step;
+	std::string m_mutation;
+	std::string m_mutationIndex;
 
     struct Connections {
         std::string MAC;
