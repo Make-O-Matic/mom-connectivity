@@ -1,5 +1,6 @@
 #include <cctype>
 #include <clocale>
+#include <string>
 #include <functional>
 #include <unordered_map>
 #include <thread>
@@ -48,8 +49,8 @@ Glove::Glove(const std::string &leftMAC, const std::string &rightMAC,
         Gio::init();
         Glib::init();
         m_gLoop = Glib::MainLoop::create();
-        m_dbus = Gio::DBus::Connection::get_sync(Gio::DBus::BUS_TYPE_SYSTEM);
-        const auto dbusProxy = Gio::DBus::Proxy::create_sync(m_dbus, "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus");
+        auto dbus = Gio::DBus::Connection::get_sync(Gio::DBus::BUS_TYPE_SYSTEM);
+        const auto dbusProxy = Gio::DBus::Proxy::create_sync(dbus, "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus");
         dbusProxy->call_sync("RequestName", Glib::VariantContainerBase::create_tuple(
                                  std::vector<Glib::VariantBase>({ Var<ustring>::create("org.makeomatic"),
                                                                   Var<guint32>::create(0)})));
@@ -69,10 +70,10 @@ Glove::Glove(const std::string &leftMAC, const std::string &rightMAC,
                     "  </interface>"
                     "</node>"
                     );
-        m_profileId = m_dbus->register_object("/org/makeomatic/glove",
+        m_profileId = dbus->register_object("/org/makeomatic/glove",
                                               introspectionData->lookup_interface(),
                                               m_interfaceVtable);
-        const auto profileManager = Gio::DBus::Proxy::create_sync(m_dbus, "org.bluez", "/org/bluez", "org.bluez.ProfileManager1");
+        const auto profileManager = Gio::DBus::Proxy::create_sync(dbus, "org.bluez", "/org/bluez", "org.bluez.ProfileManager1");
 
         auto options =
                 Glib::Variant<std::map<Glib::ustring, Glib::VariantBase>>::create(
@@ -90,7 +91,7 @@ Glove::Glove(const std::string &leftMAC, const std::string &rightMAC,
                         }));
         Var<ustring> path;
         Var<ustring>::create_object_path(path, "/org/makeomatic/glove");
-        Glib::VariantContainerBase parameters = Glib::VariantContainerBase::create_tuple(
+        const auto parameters = Glib::VariantContainerBase::create_tuple(
                     std::vector<Glib::VariantBase>({ path,
                                                      Var<ustring>::create("1101"),
                                                      options }));
@@ -103,18 +104,18 @@ Glove::Glove(const std::string &leftMAC, const std::string &rightMAC,
 }
 
 Glove::~Glove() {
-    disconnect();
-
-    const auto profileManager = Gio::DBus::Proxy::create_sync(m_dbus, "org.bluez", "/org/bluez", "org.bluez.ProfileManager1");
-
     try {
+    disconnect();
+        auto dbus = Gio::DBus::Connection::get_sync(Gio::DBus::BUS_TYPE_SYSTEM);
+    const auto profileManager = Gio::DBus::Proxy::create_sync(dbus, "org.bluez", "/org/bluez", "org.bluez.ProfileManager1");
+		
+		
         Var<ustring> path;
         Var<ustring>::create_object_path(path, "/org/makeomatic/glove");
-        Glib::VariantContainerBase parameters = Glib::VariantContainerBase::create_tuple(
-                    path );
+        const auto parameters = Glib::VariantContainerBase::create_tuple(path);
         profileManager->call_sync("UnregisterProfile", parameters);
-        m_dbus->unregister_object(m_profileId);
-        const auto dbusProxy = Gio::DBus::Proxy::create_sync(m_dbus, "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus");
+        dbus->unregister_object(m_profileId);
+        const auto dbusProxy = Gio::DBus::Proxy::create_sync(dbus, "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus");
         dbusProxy->call_sync("ReleaseName", Glib::VariantContainerBase::create_tuple(
                                  Var<ustring>::create("org.makeomatic")));
 
@@ -137,9 +138,10 @@ void Glove::connect()
                                             }
                                         }});
         try {
-
+        auto dbus = Gio::DBus::Connection::get_sync(Gio::DBus::BUS_TYPE_SYSTEM);
             for (auto &connections : m_dataConnections) {
-                m_dbus->call_sync(connections.first, "org.bluez.Device1",
+				
+                dbus->call_sync(connections.first, "org.bluez.Device1",
                                   "ConnectProfile", Glib::VariantContainerBase::create_tuple(
                                       Var<ustring>::create("00001101-0000-1000-8000-00805f9b34fb")),
                                   "org.bluez");//, G_MAXINT);
@@ -169,10 +171,10 @@ void Glove::setTrainset(const std::string &trainset) {
 }
 
 void Glove::disconnect() {
-    m_bt->join();
     try {
+		        auto dbus = Gio::DBus::Connection::get_sync(Gio::DBus::BUS_TYPE_SYSTEM);
         for (auto &connections : m_dataConnections) {
-            m_dbus->call_sync(connections.first, "org.bluez.Device1",
+            dbus->call_sync(connections.first, "org.bluez.Device1",
                               "DisconnectProfile", Glib::VariantContainerBase::create_tuple(
                                   Var<ustring>::create("00001101-0000-1000-8000-00805f9b34fb")),
                               "org.bluez");//, G_MAXINT);
@@ -185,12 +187,19 @@ void Glove::disconnect() {
     m_gThread->join();
 }
 
+std::string Glove::now() const {
+    auto now = std::chrono::high_resolution_clock::now();
+    auto time = std::chrono::duration_cast<std::chrono::microseconds>(now - m_connectionTime);
+    auto timeString = std::to_string(time.count());
+    return timeString;
+}
+
+
 void Glove::read(const std::string &device, const boost::system::error_code& error, std::size_t length)
 {
     try {
         if (!error) {
-            auto now = std::chrono::high_resolution_clock::now();
-            auto time = std::chrono::duration_cast<std::chrono::microseconds>(now - m_connectionTime);
+			auto now = Glove::now();
 
             auto &connections = m_dataConnections.at(device);
             if (!m_isRecording()) {
@@ -205,10 +214,7 @@ void Glove::read(const std::string &device, const boost::system::error_code& err
                 cobs_decode(reinterpret_cast<uint8_t*>(connections.buffer.gptr()), length - 1,
                             connections.unpackedBuffer.data());
                 connections.buffer.consume(length);
-                boost::asio::async_read_until(*(connections.socket), connections.buffer, '\0',
-                                              std::bind(&Glove::read, this, device, _1, _2));
                 auto data = reinterpret_cast<Packet*>(connections.unpackedBuffer.data());
-                std::ostringstream strs; strs << time.count(); std::string str = strs.str();
                 mongocxx::options::update options;
                 options.upsert(true);
                 std::string rfid{(char*)(data->rfid),(char*)(data->rfid)+ID_LENGTH};
@@ -230,7 +236,7 @@ void Glove::read(const std::string &device, const boost::system::error_code& err
                                       hashStop <<
                                       "data" << hashStart <<
                                       "stamp" << hashStart <<
-                                      "microSeconds" << time.count() <<
+                                      "microSeconds" << now <<
                                       hashStop <<
                                       "rfid" << rfid  <<
                                       "grasp" << hashStart <<
@@ -260,6 +266,9 @@ void Glove::read(const std::string &device, const boost::system::error_code& err
                 connections.collection.insert_one(//update
                                                   //                    document{} << "_id" << 1 << finalize,
                                                   std::move(doc));//, options);
+                                                  
+                boost::asio::async_read_until(*(connections.socket), connections.buffer, '\0',
+                                              std::bind(&Glove::read, this, device, _1, _2));
 
             }
         } else {
@@ -271,21 +280,22 @@ void Glove::read(const std::string &device, const boost::system::error_code& err
 }
 
 void Glove::on_method_call(const Glib::RefPtr<Gio::DBus::Connection>& /* connection */,
-                           const ustring& /* sender */,
-                           const ustring& /* object_path */,
-                           const ustring& /* interface_name */,
-                           const ustring& method_name,
+                           const std::string& /* sender */,
+                           const std::string& /* object_path */,
+                           const std::string& /* interface_name */,
+                           const std::string& method_name,
                            const Glib::VariantContainerBase& parameters,
                            const Glib::RefPtr<Gio::DBus::MethodInvocation>& invocation) {
     if(method_name == "NewConnection") {
         Var<ustring> gDevice;
         parameters.get_child(gDevice, 0);
         std::string device = gDevice.get();
-        const auto fd = invocation->get_message()->get_unix_fd_list()->get(0);
+        const auto fd = 
+            invocation->get_message().release()->get_unix_fd_list().release()->get(0);
         auto &connections = m_dataConnections.at(device);
         connections.socket.reset(
                     new boost::asio::generic::stream_protocol::socket{connections.ioService});
-        connections.socket->assign(boost::asio::generic::stream_protocol(AF_UNIX,3),
+        connections.socket->assign(boost::asio::generic::stream_protocol(AF_BLUETOOTH,3),
                                    fd);
         connections.thread.reset(new std::thread{[&connections,device,this](){
                                                      boost::asio::async_read_until(*connections.socket, connections.buffer, '\0',

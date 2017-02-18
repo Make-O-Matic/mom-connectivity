@@ -15,6 +15,8 @@
 #include <mongocxx/client.hpp>
 #include <mongocxx/stdx.hpp>
 
+using namespace std::placeholders;
+
 class Glove
 {
 public:
@@ -22,9 +24,12 @@ public:
                    const std::function<void(int)> &setConnected,
                    const std::function<bool()> &isRecording,
                    const std::string &leftUUID, const std::string &rightUUID);
-    ~Glove();
+    ~Glove() noexcept;
+    
     void connect();
     void disconnect();
+    
+    std::string now() const;
 
     enum Connected { none, left, right, both };
     void setTrainset(const std::string &trainset);
@@ -54,19 +59,17 @@ private:
     std::unordered_map<std::string, Connections> m_dataConnections;
 
 	Glib::RefPtr<Glib::MainLoop> m_gLoop;
-	Glib::RefPtr<Gio::DBus::Connection> m_dbus;
     std::unique_ptr<std::thread> m_gThread;
-    std::unique_ptr<std::thread> m_bt;
     int m_profileId;
 
     void on_method_call(const Glib::RefPtr<Gio::DBus::Connection>& /* connection */,
-                               const Glib::ustring& /* sender */,
-                               const Glib::ustring& /* object_path */,
-                               const Glib::ustring& /* interface_name */,
-                               const Glib::ustring& method_name,
+                               const std::string& /* sender */,
+                               const std::string& /* object_path */,
+                               const std::string& /* interface_name */,
+                               const std::string& method_name,
                                const Glib::VariantContainerBase& parameters,
                                const Glib::RefPtr<Gio::DBus::MethodInvocation>& invocation);
-    const Gio::DBus::InterfaceVTable m_interfaceVtable{sigc::mem_fun(*this, &Glove::on_method_call)};
+    const Gio::DBus::InterfaceVTable m_interfaceVtable{std::bind(&Glove::on_method_call, this, _1, _2, _3 , _4, _5, _6, _7)};
     void updateConnected();
 };
 
