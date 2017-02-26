@@ -1,12 +1,12 @@
 #ifndef GLOVE_H
 #define GLOVE_H
-#include <limits.h>
+#include <memory>
 #include <functional>
+#include <chrono>
+#include <string>
 #include <vector>
 #include <unordered_map>
-#include <string>
-#include <thread>
-#include <chrono>
+#include <future>
 #include <boost/asio.hpp>
 #include <glibmm.h>
 #include <giomm.h>
@@ -23,7 +23,7 @@ public:
     explicit Glove(const std::string &leftMAC, const std::string &rightMAC,
                    const std::function<void(int)> &setConnected,
                    const std::function<bool()> &isRecording,
-                   const std::string &leftUUID, const std::string &rightUUID);
+                   const std::string &leftID, const std::string &rightID);
     ~Glove() noexcept;
     
     void connect();
@@ -36,7 +36,7 @@ public:
         const int step, const std::string &mutation, const std::string &mutationIndex);
 
 private:
-    void read(const std::string &device, const boost::system::error_code&, std::size_t length);
+    void ingestData(const std::string &device, const boost::system::error_code&, std::size_t length);
 
     std::chrono::time_point<std::chrono::high_resolution_clock> m_connectionTime;
 
@@ -44,37 +44,37 @@ private:
 
     std::function<void(Connected)> m_setConnected;
     std::function<bool()> m_isRecording;
-    
-    int m_step;
-	std::string m_mutation;
-	std::string m_mutationIndex;
 
     struct Connections {
         std::string MAC;
-        std::string uuid;
+        std::string id;
         boost::asio::io_service ioService;
         std::unique_ptr<boost::asio::generic::stream_protocol::socket> socket;
         boost::asio::streambuf buffer;
         std::vector<uint8_t> unpackedBuffer;
         mongocxx::client db;
         mongocxx::collection collection;
-        std::unique_ptr<std::thread> thread;
+        std::future<void> run;
     };
     std::unordered_map<std::string, Connections> m_dataConnections;
-
+	std::unique_ptr<Gio::DBus::Connection> m_dbus;
+	int m_profileId;
 	Glib::RefPtr<Glib::MainLoop> m_gLoop;
-    std::unique_ptr<std::thread> m_gThread;
-    int m_profileId;
+    std::future<void> m_runGLoop;
 
-    void on_method_call(const Glib::RefPtr<Gio::DBus::Connection>& /* connection */,
+    void execute(const Glib::RefPtr<Gio::DBus::Connection>& /* connection */,
                                const std::string& /* sender */,
                                const std::string& /* object_path */,
                                const std::string& /* interface_name */,
-                               const std::string& method_name,
+                               const std::string& method,
                                const Glib::VariantContainerBase& parameters,
                                const Glib::RefPtr<Gio::DBus::MethodInvocation>& invocation);
-    const Gio::DBus::InterfaceVTable m_interfaceVtable{std::bind(&Glove::on_method_call, this, _1, _2, _3 , _4, _5, _6, _7)};
+    const Gio::DBus::InterfaceVTable m_profileInterface{std::bind(&Glove::execute, this, _1, _2, _3 , _4, _5, _6, _7)};
     void updateConnected();
+    
+    int m_step;
+	std::string m_mutation;
+	std::string m_mutationIndex;
 };
 
 #endif // GLOVE_H
