@@ -34,20 +34,20 @@ class get_pybind_include(object):
         return pybind11.get_include(self.user)
 
 
-config = pkgconfig('libpng', config=
+config = pkgconfig('libmongocxx', 'giomm-2.4', 'glibmm-2.4', config=
     {'include_dirs' : [
             # Path to pybind11 headers
             get_pybind_include(),
             get_pybind_include(user=True)
         ],
-	 'libraries' : ['png']
+	 'libraries' : ['boost_system']
     }
 )
 
 ext_modules = [
     Extension(
-        'python_example',
-        ['src/main.cpp'],
+        'glove',
+        ['glove/bindings.cpp', 'glove/glove.cpp', 'glove/cobs/cobs.c'],
         **config,
         language='c++'
     ),
@@ -109,12 +109,12 @@ class BuildExt(build_ext):
         build_ext.build_extensions(self)
 
 setup(
-    name='python_example',
+    name='mom-connectivity',
     version=__version__,
-    author='Sylvain Corlay',
-    author_email='sylvain.corlay@gmail.com',
-    url='https://github.com/pybind/python_example',
-    description='A test project using pybind11',
+    author='ni-cc',
+#    author_email='',
+    url='',
+    description='Make-O-Matic connectivity',
     long_description='',
     ext_modules=ext_modules,
     install_requires=['pybind11>=1.7'],
