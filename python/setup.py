@@ -109,13 +109,14 @@ class BuildExt(build_ext):
         build_ext.build_extensions(self)
 
 setup(
-    name='mom-connectivity',
+    name='momconnectivity',
     version=__version__,
     author='ni-cc',
 #    author_email='',
     url='',
     description='Make-O-Matic connectivity',
     long_description='',
+    ext_package='momconnectivity',
     ext_modules=ext_modules,
     install_requires=['pybind11>=1.7'],
     cmdclass={'build_ext': BuildExt},
