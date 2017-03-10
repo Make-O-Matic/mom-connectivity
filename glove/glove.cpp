@@ -20,7 +20,7 @@ extern "C" {
 #include "cobs/cobs.h"
 #undef restrict
 }
-#include "packet.h"
+#include "MOM-Glove/MOM-Glove/Packet.h"
 #include "glove.h"
 
 using namespace std::placeholders;

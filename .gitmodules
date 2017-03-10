@@ -1,3 +1,6 @@
 [submodule "cobs"]
 	path = glove/cobs
 	url = https://github.com/jacquesf/COBS-Consistent-Overhead-Byte-Stuffing
+[submodule "glove/MOM-Glove"]
+	path = glove/MOM-Glove
+	url = https://github.com/Make-O-Matic/MOM-Glove.git
