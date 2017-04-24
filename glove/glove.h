@@ -57,7 +57,7 @@ private:
         std::future<void> run;
     };
     std::unordered_map<std::string, Connections> m_dataConnections;
-	std::unique_ptr<Gio::DBus::Connection> m_dbus;
+	Glib::RefPtr<Gio::DBus::Connection> m_dbus;
 	int m_profileId;
 	Glib::RefPtr<Glib::MainLoop> m_gLoop;
     std::future<void> m_runGLoop;

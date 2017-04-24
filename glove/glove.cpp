@@ -54,12 +54,8 @@ Glove::Glove(const std::string &leftMAC, const std::string &rightMAC,
         Gio::init();
         Glib::init();
         m_gLoop = Glib::MainLoop::create();
-        auto dbus = Gio::DBus::Connection::get_sync(Gio::DBus::BUS_TYPE_SYSTEM);
-        const auto dbusProxy = Gio::DBus::Proxy::create_sync(dbus, "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus");
-        dbusProxy->call_sync("RequestName", Glib::VariantContainerBase::create_tuple(
-                                 std::vector<Glib::VariantBase>({ Var<ustring>::create("org.makeomatic"),
-                                                                  Var<guint32>::create(0)})));
-        
+        m_dbus = Gio::DBus::Connection::get_sync(Gio::DBus::BUS_TYPE_SYSTEM);
+
         auto profile = Gio::DBus::NodeInfo::create_for_xml(
                     "<node>"
                     "  <interface name='org.bluez.Profile1'>"
@@ -75,11 +71,10 @@ Glove::Glove(const std::string &leftMAC, const std::string &rightMAC,
                     "  </interface>"
                     "</node>"
                     );
-      
-        m_profileId = dbus->register_object("/org/makeomatic/glove",
+        m_profileId = m_dbus->register_object("/io/makeomatic/glove",
                                               profile->lookup_interface(),
                                               m_profileInterface);
-        const auto profileManager = Gio::DBus::Proxy::create_sync(dbus, "org.bluez", "/org/bluez", "org.bluez.ProfileManager1");
+        const auto profileManager = Gio::DBus::Proxy::create_sync(m_dbus, "org.bluez", "/org/bluez", "org.bluez.ProfileManager1");
 
         auto options =
                 Glib::Variant<std::map<Glib::ustring, Glib::VariantBase>>::create(
@@ -96,7 +91,7 @@ Glove::Glove(const std::string &leftMAC, const std::string &rightMAC,
                             // { "AutoConnect", Var<bool>::create(true) }
                         }));
         Var<ustring> path;
-        Var<ustring>::create_object_path(path, "/org/makeomatic/glove");
+        Var<ustring>::create_object_path(path, "/io/makeomatic/glove");
         const auto parameters = Glib::VariantContainerBase::create_tuple(
                     std::vector<Glib::VariantBase>({ path,
                                                      Var<ustring>::create("1101"),
@@ -106,24 +101,19 @@ Glove::Glove(const std::string &leftMAC, const std::string &rightMAC,
 
 Glove::~Glove() {
     try {
-    disconnect();
-        } catch (const std::runtime_error &error)   {
+        disconnect();
+    } catch (const std::runtime_error &error)   {
     }
-        auto dbus = Gio::DBus::Connection::get_sync(Gio::DBus::BUS_TYPE_SYSTEM);
-    const auto profileManager = Gio::DBus::Proxy::create_sync(dbus, "org.bluez", "/org/bluez", "org.bluez.ProfileManager1");
-		
+    const auto profileManager = Gio::DBus::Proxy::create_sync(m_dbus, "org.bluez", "/org/bluez", "org.bluez.ProfileManager1");
 		
         Var<ustring> path;
-        Var<ustring>::create_object_path(path, "/org/makeomatic/glove");
+        Var<ustring>::create_object_path(path, "/io/makeomatic/glove");
         const auto parameters = Glib::VariantContainerBase::create_tuple(path);
         try {
-        profileManager->call_sync("UnregisterProfile", parameters);
-        dbus->unregister_object(m_profileId);
-        const auto dbusProxy = Gio::DBus::Proxy::create_sync(dbus, "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus");
-        dbusProxy->call_sync("ReleaseName", Glib::VariantContainerBase::create_tuple(
-                                 Var<ustring>::create("org.makeomatic")));
-                                         } catch (const Gio::Error &error)   {
-    }
+            profileManager->call_sync("UnregisterProfile", parameters);
+            m_dbus->unregister_object(m_profileId);
+        } catch (const Gio::Error &error)   {
+        }
 }
 
 void Glove::connect()
@@ -131,19 +121,16 @@ void Glove::connect()
         m_connectionTime = std::chrono::high_resolution_clock::now();
 
         m_runGLoop = std::async(std::launch::async, [this](){ m_gLoop->run(); });
-        
-        auto dbus = Gio::DBus::Connection::get_sync(Gio::DBus::BUS_TYPE_SYSTEM);
             for (auto &connections : m_dataConnections) {
 				try {
-                dbus->call_sync(connections.first, "org.bluez.Device1",
+                    m_dbus->call_sync(connections.first, "org.bluez.Device1",
                                   "ConnectProfile", Glib::VariantContainerBase::create_tuple(
                                       Var<ustring>::create("1101")),
                                   "org.bluez");//, G_MAXINT);
-    } catch (const Glib::Error &error)   {
-        throw std::runtime_error(error.what());
-    }
+                } catch (const Glib::Error &error)   {
+                    throw std::runtime_error(error.what() + connections.first);
+                }
             }
-                m_dbus.reset(dbus.release());
 }
 
 void Glove::setTrainsetExercise(const std::string &trainset,
@@ -152,7 +139,7 @@ void Glove::setTrainsetExercise(const std::string &trainset,
     std::shared_future<void> done{donePromise.get_future()};
     for (auto &connections : m_dataConnections) {
         std::promise<void> ready;
-		auto setTrainsetAndWait = std::make_shared<std::packaged_task<void()>>([&connections, &trainset, &ready, done](){ 
+		auto setTrainsetAndWait = std::make_shared<std::packaged_task<void()>>([&connections, &trainset, &ready, done](){
             if (!trainset.empty())
                 connections.second.collection = connections.second.db["makeomatic"][trainset];
             ready.set_value();
@@ -178,17 +165,15 @@ void Glove::setTrainsetExercise(const std::string &trainset,
 }
 
 void Glove::disconnect() {
-
-		        auto dbus = Gio::DBus::Connection::get_sync(Gio::DBus::BUS_TYPE_SYSTEM);
-        for (auto &connections : m_dataConnections) {
-    if (!connections.second.run.valid())
-        continue;
-            dbus->call_sync(connections.first, "org.bluez.Device1",
+    for (auto &connections : m_dataConnections) {
+        if (!connections.second.run.valid())
+            continue;
+        m_dbus->call_sync(connections.first, "org.bluez.Device1",
                               "DisconnectProfile", Glib::VariantContainerBase::create_tuple(
                                   Var<ustring>::create("1101")),
                               "org.bluez");//, G_MAXINT);
-connections.second.run.get();
-}
+        connections.second.run.get();
+    }
     if (m_runGLoop.valid()) {
         m_gLoop->quit();
         m_runGLoop.get();
