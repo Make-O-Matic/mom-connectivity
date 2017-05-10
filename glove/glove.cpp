@@ -49,7 +49,7 @@ Glove::Glove(const std::string &leftMAC, const std::string &rightMAC,
             device.insert(0, "/org/bluez/hci0/dev_");
             auto &connections{m_dataConnections[device]};
             connections.id = (MAC == leftMAC ? leftID : rightID);
-            connections.readHandler = std::bind(&Glove::ingestData, this,
+            connections.readHandler = std::bind(&Glove::processData, this,
                 std::ref(connections), _1, _2);
         }
 
@@ -73,9 +73,9 @@ Glove::Glove(const std::string &leftMAC, const std::string &rightMAC,
                     "  </interface>"
                     "</node>"
                     )};
-        m_profileId = m_dbus->register_object("/io/makeomatic/glove",
-                                              profile->lookup_interface(),
-                                              m_profileInterface);
+        m_profile = m_dbus->register_object("/io/makeomatic/glove",
+                                            profile->lookup_interface(),
+                                            m_profileInterface);
         const auto profileManager{Gio::DBus::Proxy::create_sync(m_dbus, "org.bluez", "/org/bluez", "org.bluez.ProfileManager1")};
 
         const auto options{
@@ -113,7 +113,7 @@ Glove::~Glove() {
         const auto parameters{Glib::VariantContainerBase::create_tuple(path)};
         try {
             profileManager->call_sync("UnregisterProfile", parameters);
-            m_dbus->unregister_object(m_profileId);
+            m_dbus->unregister_object(m_profile);
         } catch (const Gio::Error &error)   {
         }
 }
@@ -130,7 +130,7 @@ void Glove::connect()
                                       Var<ustring>::create("1101")),
                                   "org.bluez");
                 } catch (const Glib::Error &error)   {
-                    throw std::runtime_error(error.what() + connections.first);
+                    //throw std::runtime_error(error.what() + connections.first);
                 }
             }
 }
@@ -153,9 +153,9 @@ void Glove::disconnect() {
 void Glove::setTrainsetExercise(const std::string &trainset,
     const int step, const std::string &mutation, const std::string &mutationIndex) {
     std::promise<void> done;
-    std::shared_future<void> doneMessage{done.get_future()};
+    std::shared_future<void> latch{done.get_future()};
     for (auto &connections : m_dataConnections) {
-        connections.second.setTrainsetAndWait(trainset, doneMessage);
+        connections.second.setTrainsetAndWait(trainset, latch);
     }
 
     if (trainset.empty()) {
@@ -181,8 +181,7 @@ std::string Glove::now() const {
     return timeString;
 }
 
-
-void Glove::ingestData(ConnectionsBuffer& connections,
+void Glove::processData(ConnectionsBuffer& connections,
     const boost::system::error_code& error, std::size_t length)
 {
         if (!error) {
@@ -190,18 +189,31 @@ void Glove::ingestData(ConnectionsBuffer& connections,
                 return;
             const auto now{Glove::now()};
 
-            if (!m_isRecording()) {
+            if (!m_isRecording() && !processRFID) {
                 connections.consume(length);
                 connections.requestRead();
                 return;
             }
 
-            const auto &data{connections.get(length)};
-            mongocxx::options::update options;
-            options.upsert(true);
+            Packet data;
+            try {
+                data = connections.get(length);
+            } catch (const std::runtime_error &error) {
+                connections.requestRead();
+                return;
+            }
             std::string rfid{(char*)(data.rfid),(char*)(data.rfid)+ID_LENGTH};
-            if (rfid == std::string(ID_LENGTH, '\0'))
+            if (rfid == std::string(ID_LENGTH, '\0')) {
                 rfid = std::string(ID_LENGTH, '0');
+            } else if (processRFID) {
+                processRFID(rfid);
+            }
+            if (!m_isRecording()) {
+                connections.requestRead();
+                return;
+            }
+            //mongocxx::options::update options;
+            //options.upsert(true);
             auto doc{
                         //    connections.collection.update_one(
                         //               document{} << "_id" << 1 << finalize,
@@ -242,11 +254,10 @@ void Glove::ingestData(ConnectionsBuffer& connections,
                                       //         hashStop <<
                                       //   hashStop <<
                                       hashStop << hashStop << finalize};//, options);
+            connections.requestRead();
             connections.collection.insert_one(//update
                                                   //                    document{} << "_id" << 1 << finalize,
                                                   std::move(doc));//, options);
-
-            connections.requestRead();
         } else {
             std::cerr << error.message() << std::endl;
         }
@@ -309,26 +320,30 @@ void Glove::ConnectionsBuffer::stop() {
 }
 
 void Glove::ConnectionsBuffer::setTrainsetAndWait(
-    const std::string &trainset, const std::shared_future<void> &message) {
-    std::promise<void> ready;
+    const std::string &trainset, const std::shared_future<void> &latch) {
+    std::promise<void> arrived;
     auto setTrainsetAndWait{std::make_shared<std::packaged_task<void()>>(
-       [&trainset, &ready, message, this](){
+       [&trainset, &arrived, latch, this](){
             if (!trainset.empty())
                 collection = m_db["makeomatic"][trainset];
-            ready.set_value();
-            message.wait();
+            arrived.set_value();
+            latch.wait();
         })};
     m_ioService.post([setTrainsetAndWait](){ setTrainsetAndWait->operator()(); });
-    ready.get_future().wait();
+    arrived.get_future().wait();
 }
 
 void Glove::ConnectionsBuffer::requestRead() {
     boost::asio::async_read_until(*m_socket, *this, '\0', readHandler);
 }
 
-const Packet& Glove::ConnectionsBuffer::get(const int length) {
-    m_unpackedBuffer.reserve(length - 1);
-    cobs_decode(reinterpret_cast<uint8_t*>(gptr()), length - 1, m_unpackedBuffer.data());
+Packet Glove::ConnectionsBuffer::get(const int length) {
+    const auto decoded = cobs_decode(
+        reinterpret_cast<uint8_t*>(gptr()), length - 1, 
+        reinterpret_cast<uint8_t*>(m_packet));
     consume(length);
-    return *reinterpret_cast<Packet*>(m_unpackedBuffer.data());
+    if (decoded != 43) {
+        throw std::runtime_error{"Bad packet"};
+    }
+    return m_packet[0];
 }

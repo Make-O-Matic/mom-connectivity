@@ -11,19 +11,20 @@ PYBIND11_PLUGIN(glove) {
                  const std::function<bool()>&, 
                  const std::string&, const std::string&>())
             .def("connect", [](Glove &glove){
-				pybind11::gil_scoped_release release;
-				glove.connect();
-			})
+                pybind11::gil_scoped_release release;
+                glove.connect();
+            })
             .def("disconnect", [](Glove &glove){
-				pybind11::gil_scoped_release release;
-				glove.disconnect();
-			})   
-            .def("now", &Glove::now)                        
+                pybind11::gil_scoped_release release;
+                glove.disconnect();
+            })   
+            .def("now", &Glove::now)
+            .def_readwrite("processRFID", &Glove::processRFID)
             .def("setTrainsetExercise", [](Glove &glove, const std::string &trainset,
         const int step, const std::string &mutation, const std::string &mutationIndex){
-				pybind11::gil_scoped_release release;
-				glove.setTrainsetExercise(trainset, step, mutation, mutationIndex);
-			});
+                pybind11::gil_scoped_release release;
+                glove.setTrainsetExercise(trainset, step, mutation, mutationIndex);
+            });
 
     return m.ptr();
 }
