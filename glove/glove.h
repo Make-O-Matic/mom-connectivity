@@ -33,7 +33,7 @@ public:
     void setTrainsetExercise(const std::string &trainset,
         const int step, const std::string &mutation, const std::string &mutationIndex);
     std::string now() const;
-    std::function<void(const std::string&)> processRFID;
+    std::function<void(const std::string&,bool)> processRFID;
         
     enum Connected { none, left, right, both };
 private:
@@ -67,6 +67,7 @@ private:
         std::string id;
         std::function<void(const boost::system::error_code&,std::size_t)> readHandler;
         mongocxx::collection collection;
+        bool left;
     private:
         boost::asio::io_service m_ioService;
         std::unique_ptr<boost::asio::generic::stream_protocol::socket> m_socket;
@@ -78,6 +79,7 @@ private:
 
     Glib::RefPtr<Glib::MainLoop> m_gLoop;
     Glib::RefPtr<Gio::DBus::Connection> m_dbus;
+    Gio::SlotAsyncReady m_null;
     int m_profile;
     std::chrono::time_point<std::chrono::high_resolution_clock> m_connectionTime;
     std::future<void> m_runGLoop;

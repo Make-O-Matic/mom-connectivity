@@ -48,7 +48,8 @@ Glove::Glove(const std::string &leftMAC, const std::string &rightMAC,
             }
             device.insert(0, "/org/bluez/hci0/dev_");
             auto &connections{m_dataConnections[device]};
-            connections.id = (MAC == leftMAC ? leftID : rightID);
+            connections.left = (MAC == leftMAC);
+            connections.id = (connections.left ? leftID : rightID);
             connections.readHandler = std::bind(&Glove::processData, this,
                 std::ref(connections), _1, _2);
         }
@@ -125,10 +126,10 @@ void Glove::connect()
         m_runGLoop = std::async(std::launch::async, [this](){ m_gLoop->run(); });
             for (auto &connections : m_dataConnections) {
                 try {
-                    m_dbus->call_sync(connections.first, "org.bluez.Device1",
+                    m_dbus->call(connections.first, "org.bluez.Device1",
                                   "ConnectProfile", Glib::VariantContainerBase::create_tuple(
                                       Var<ustring>::create("1101")),
-                                  "org.bluez");
+                                  m_null, "org.bluez");
                 } catch (const Glib::Error &error)   {
                     //throw std::runtime_error(error.what() + connections.first);
                 }
@@ -206,7 +207,7 @@ void Glove::processData(ConnectionsBuffer& connections,
             if (rfid == std::string(ID_LENGTH, '\0')) {
                 rfid = std::string(ID_LENGTH, '0');
             } else if (processRFID) {
-                processRFID(rfid);
+                processRFID(rfid, connections.left);
             }
             if (!m_isRecording()) {
                 connections.requestRead();
@@ -293,10 +294,13 @@ void Glove::execute(const Glib::RefPtr<Gio::DBus::Connection>&,
 
 void Glove::updateConnected() {
     Connected state{Connected::none};
-    if (m_dataConnections.begin()->second.running())
-        state = Connected::left;
-    if ((++(m_dataConnections.begin()))->second.running())
-        state = static_cast<Connected>(state | Connected::right);
+    auto connections{m_dataConnections.begin()};
+    const auto left{connections->second.left};
+    if (connections->second.running())
+        state = (left ? Connected::left : Connected::right);
+    if ((++(connections))->second.running())
+        state = static_cast<Connected>(
+            state | (left ? Connected::right : Connected::left));
     m_setConnected(state);
 }
 
@@ -342,7 +346,7 @@ Packet Glove::ConnectionsBuffer::get(const int length) {
         reinterpret_cast<uint8_t*>(gptr()), length - 1, 
         reinterpret_cast<uint8_t*>(m_packet));
     consume(length);
-    if (decoded != 43) {
+    if (decoded != (sizeof(Packet) - 1)) {
         throw std::runtime_error{"Bad packet"};
     }
     return m_packet[0];
