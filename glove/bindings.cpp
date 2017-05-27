@@ -20,6 +20,7 @@ PYBIND11_PLUGIN(glove) {
             })   
             .def("now", &Glove::now)
             .def_readwrite("processRFID", &Glove::processRFID)
+            .def("setIODone", &Glove::setIODone)
             .def("setTrainsetExercise", [](Glove &glove, const std::string &trainset,
         const int step, const std::string &mutation, const std::string &mutationIndex){
                 pybind11::gil_scoped_release release;

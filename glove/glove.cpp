@@ -50,7 +50,7 @@ Glove::Glove(const std::string &leftMAC, const std::string &rightMAC,
             auto &connections{m_dataConnections[device]};
             connections.left = (MAC == leftMAC);
             connections.id = (connections.left ? leftID : rightID);
-            connections.readHandler = std::bind(&Glove::processData, this,
+            connections.handleRead = std::bind(&Glove::processData, this,
                 std::ref(connections), _1, _2);
         }
 
@@ -124,20 +124,20 @@ void Glove::connect()
         m_connectionTime = std::chrono::high_resolution_clock::now();
 
         m_runGLoop = std::async(std::launch::async, [this](){ m_gLoop->run(); });
-            for (auto &connections : m_dataConnections) {
+            for (const auto &connections : m_dataConnections) {
                 try {
                     m_dbus->call(connections.first, "org.bluez.Device1",
                                   "ConnectProfile", Glib::VariantContainerBase::create_tuple(
                                       Var<ustring>::create("1101")),
                                   m_null, "org.bluez");
-                } catch (const Glib::Error &error)   {
+                } catch (const Glib::Error &error) {
                     //throw std::runtime_error(error.what() + connections.first);
                 }
             }
 }
 
 void Glove::disconnect() {
-    for (auto &connections : m_dataConnections) {
+    for (const auto &connections : m_dataConnections) {
         if (!connections.second.running())
             continue;
         m_dbus->call_sync(connections.first, "org.bluez.Device1",
@@ -206,8 +206,10 @@ void Glove::processData(ConnectionsBuffer& connections,
             std::string rfid{(char*)(data.rfid),(char*)(data.rfid)+ID_LENGTH};
             if (rfid == std::string(ID_LENGTH, '\0')) {
                 rfid = std::string(ID_LENGTH, '0');
-            } else if (processRFID) {
+                connections.sent_rfid = false;
+            } else if (!connections.sent_rfid && processRFID) {
                 processRFID(rfid, connections.left);
+                connections.sent_rfid = true;
             }
             if (!m_isRecording()) {
                 connections.requestRead();
@@ -260,7 +262,7 @@ void Glove::processData(ConnectionsBuffer& connections,
                                                   //                    document{} << "_id" << 1 << finalize,
                                                   std::move(doc));//, options);
         } else {
-            std::cerr << error.message() << std::endl;
+            //std::cerr << error.message() << std::endl;
         }
 }
 
@@ -294,13 +296,10 @@ void Glove::execute(const Glib::RefPtr<Gio::DBus::Connection>&,
 
 void Glove::updateConnected() {
     Connected state{Connected::none};
-    auto connections{m_dataConnections.begin()};
-    const auto left{connections->second.left};
-    if (connections->second.running())
-        state = (left ? Connected::left : Connected::right);
-    if ((++(connections))->second.running())
-        state = static_cast<Connected>(
-            state | (left ? Connected::right : Connected::left));
+    for (const auto& connections : m_dataConnections)
+        if (connections.second.running())
+            state = static_cast<Connected>(
+                state | (connections.second.left ? Connected::left : Connected::right));
     m_setConnected(state);
 }
 
@@ -308,7 +307,10 @@ void Glove::ConnectionsBuffer::start(const int socket) {
     m_socket.reset(new boost::asio::generic::stream_protocol::socket{m_ioService});
     m_socket->assign(boost::asio::generic::stream_protocol(AF_BLUETOOTH,3), socket);
     requestRead();
-    m_run = std::async(std::launch::async, [this](){ m_ioService.run(); });
+    m_run = std::async(std::launch::async, [this](){ 
+        m_ioService.run(); 
+        handleIODone();
+    });
 }
 
 void Glove::ConnectionsBuffer::stop() {
@@ -338,7 +340,7 @@ void Glove::ConnectionsBuffer::setTrainsetAndWait(
 }
 
 void Glove::ConnectionsBuffer::requestRead() {
-    boost::asio::async_read_until(*m_socket, *this, '\0', readHandler);
+    boost::asio::async_read_until(*m_socket, *this, '\0', handleRead);
 }
 
 Packet Glove::ConnectionsBuffer::get(const int length) {

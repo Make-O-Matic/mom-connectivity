@@ -34,6 +34,7 @@ public:
         const int step, const std::string &mutation, const std::string &mutationIndex);
     std::string now() const;
     std::function<void(const std::string&,bool)> processRFID;
+    void setIODone(const std::function<void()> &f) { for (auto &connections : m_dataConnections) connections.second.handleIODone = f; }
         
     enum Connected { none, left, right, both };
 private:
@@ -57,17 +58,19 @@ private:
     class ConnectionsBuffer : boost::asio::streambuf {
     public:
         using boost::asio::streambuf::consume;
-        const bool running() const { return m_run.valid(); }
+        const bool running() const { return (m_run.valid() && m_run.wait_for(std::chrono::seconds(0)) != std::future_status::ready); }
         void start(const int socket);
         void stop();
         void setTrainsetAndWait(const std::string &trainset, const std::shared_future<void> &message);
         void requestRead();
         Packet get(const int length);
 
-        std::string id;
-        std::function<void(const boost::system::error_code&,std::size_t)> readHandler;
-        mongocxx::collection collection;
         bool left;
+        std::string id;
+        std::function<void(const boost::system::error_code&,std::size_t)> handleRead;
+        mongocxx::collection collection;
+        bool sent_rfid{false};
+        std::function<void()> handleIODone;
     private:
         boost::asio::io_service m_ioService;
         std::unique_ptr<boost::asio::generic::stream_protocol::socket> m_socket;
